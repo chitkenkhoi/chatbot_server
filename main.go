@@ -10,6 +10,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"github.com/joho/godotenv"
 	"server/auth"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"errors"
 )
 
 func main() {
@@ -105,7 +107,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 	router.POST("/login", func(c *gin.Context) {
-		if model.IsTokenValid(c, redisClient) {
+		if  model.IsTokenValid(c, redisClient){
 			c.JSON(http.StatusOK, gin.H{"message": "token is already valid"})
 			return
 		}
@@ -122,6 +124,36 @@ func main() {
 				c.SetCookie("jwt_token", token, 60*60*24, "/", "localhost", false, true)
 			}
 			c.JSON(http.StatusOK, gin.H{"message": "success", "userId": userId})
+		}
+	})
+	router.GET("/conversations",func(c *gin.Context){
+		if !model.IsTokenValid(c,redisClient){
+			c.JSON(http.StatusBadRequest,gin.H{
+				"error":errors.New("not authenticate"),
+			})
+			return
+		}
+		cookie, _ := c.Request.Cookie("jwt_token")
+		token := cookie.Value
+		payload,_ := auth.DecodeJWT(token)
+		userID, err := primitive.ObjectIDFromHex(payload.UserID)
+		if err !=nil{
+			c.JSON(http.StatusBadRequest,gin.H{
+				"error":err,
+			})
+			return
+		}
+		if conversations,err:=model.GetUserConversations(userID,client);err!=nil{
+			c.JSON(http.StatusBadRequest,gin.H{
+				"error":err,
+			})
+			return
+		}else{
+			c.JSON(http.StatusOK,gin.H{
+				"message":"success",
+				"conversations": conversations,
+			})
+			return
 		}
 	})
 	router.Run(":5000")

@@ -4,6 +4,8 @@ import (
     "fmt"
     "net/http"
     "strings"
+    "encoding/json"
+    "os"
 )
 
 func GetStreamingResponseFromModelAPI(message string) <-chan string {
@@ -15,15 +17,15 @@ func GetStreamingResponseFromModelAPI(message string) <-chan string {
         defer close(tokenChan)
 
         // Prepare the request body
-        // reqBody := map[string]string{"conversation": message}
-        // jsonBody, err := json.Marshal(reqBody)
-        // if err != nil {
-        //     fmt.Println("Error marshalling JSON:", err)
-        //     return
-        // }
+        reqBody := map[string]string{"conversation": message}
+        jsonBody, err := json.Marshal(reqBody)
+        if err != nil {
+            fmt.Println("Error marshalling JSON:", err)
+            return
+        }
 
         // Create a new request
-        req, err := http.NewRequest("GET", "http://localhost:6000/generate", strings.NewReader("a"))
+        req, err := http.NewRequest("POST", os.Getenv("GOOGLE_COLAB_API_URL"), strings.NewReader(string(jsonBody)))
         if err != nil {
             fmt.Println("Error creating request:", err)
             return
@@ -31,6 +33,7 @@ func GetStreamingResponseFromModelAPI(message string) <-chan string {
 
         // Set headers
         req.Header.Set("Content-Type", "application/json")
+        req.Header.Set("ngrok-skip-browser-warning","hello")
 
         // Send the request
         client := &http.Client{}

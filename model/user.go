@@ -76,7 +76,7 @@ func Login(email, password string, client *mongo.Client) (string, error) {
 	}
 	return user.ID.Hex(), nil
 }
-func IsTokenValid(c *gin.Context, redisClient *redis.Client) bool {
+func IsTokenValid(c *gin.Context, redisClient *redis.Client) (bool) {
 	cookie, err := c.Request.Cookie("jwt_token")
 	if err != nil {
 		return false
