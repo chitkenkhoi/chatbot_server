@@ -2,16 +2,18 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	chatbotapi "server/chatbotAPI"
 	"server/utils"
+	ws "server/websocket"
 	"strings"
 	"time"
-	"errors"
-	"go.mongodb.org/mongo-driver/mongo/options"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type Message struct {
@@ -33,14 +35,15 @@ type Conversation struct {
 	StartedAt time.Time            `bson:"started_at" json:"started_at"`
 	UpdatedAt time.Time            `bson:"updated_at" json:"updated_at"`
 	Messages  []Message            `bson:"messages" json:"messages"`
-	Topic     string `bson:"topic,omitempty" json:"topic,omitempty"`
+	Topic     string               `bson:"topic,omitempty" json:"topic,omitempty"`
 	Metadata  ConversationMetadata `bson:"metadata,omitempty" json:"metadata,omitempty"`
 }
 type ConversationSummary struct {
-	ID    primitive.ObjectID `bson:"_id" json:"id"`
-	Topic string             `bson:"topic" json:"topic"`
-	UpdatedAt time.Time            `bson:"updated_at" json:"updated_at"`
+	ID        primitive.ObjectID `bson:"_id" json:"id"`
+	Topic     string             `bson:"topic" json:"topic"`
+	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
 }
+
 func NewConversation(userID primitive.ObjectID, content string) *Conversation {
 	content = utils.CleanString(content)
 	return &Conversation{
@@ -55,7 +58,8 @@ func NewConversation(userID primitive.ObjectID, content string) *Conversation {
 		}},
 	}
 }
-func GenerateResponseAndWebsocket(content string) string {
+// This function generates a response from the user's message using the model API and sends it to the user via websocket.
+func GenerateResponseAndWebsocket(userID, content string) string {
 	var completeResponse strings.Builder
 	isFirstToken := true
 	for token := range chatbotapi.GetStreamingResponseFromModelAPI(content) {
@@ -63,18 +67,20 @@ func GenerateResponseAndWebsocket(content string) string {
 		// HANDLE WEBSOCKET HERE
 		// Add space before token, except for the first token
 		if !isFirstToken {
+			ws.BroadcastToken(userID, token + " ")
 			completeResponse.WriteString(" ")
 		} else {
 			isFirstToken = false
+			ws.BroadcastToken(userID, token)
 		}
-
 		completeResponse.WriteString(token)
 	}
 	return completeResponse.String()
 }
+//This function first creates a new conversation with the user's message, then generates a response using the model API and sends it to the user via websocket. Finally, it saves the conversation to the database.
 func AskNewConversation(userID primitive.ObjectID, content string, client *mongo.Client) (primitive.ObjectID, error) {
 	conversation := NewConversation(userID, content)
-	finalResponse := GenerateResponseAndWebsocket(conversation.Messages[0].Content)
+	finalResponse := GenerateResponseAndWebsocket(userID.Hex(), conversation.Messages[0].Content)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	collection := client.Database("chatbot-server").Collection("conversation")
@@ -98,13 +104,14 @@ func (c *Conversation) AddMessage(sender, content string) {
 func (c *Conversation) RemoveMessage(index int) {
 	c.Messages = append(c.Messages[:index], c.Messages[index+1:]...)
 }
-func AskInConversation(conversationID primitive.ObjectID, content string, client *mongo.Client) ( error) {
+// This function generates a response from the whole conversation using the model API and sends it to the user via websocket. It then saves the question and answer to the database.
+func AskInConversation(conversationID primitive.ObjectID, content string, client *mongo.Client) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	content = utils.CleanString(content)
-	finalResponse := GenerateResponseAndWebsocket(content)
+	finalResponse := GenerateResponseAndWebsocket("", content)
 	filter := bson.M{"_id": conversationID}
-	newMessages :=  []Message{
+	newMessages := []Message{
 		{
 			Sender:    "user",
 			Content:   content,
@@ -112,8 +119,8 @@ func AskInConversation(conversationID primitive.ObjectID, content string, client
 			Token:     utils.CountToken(content),
 		},
 		{
-			Sender: "bot",
-			Content: finalResponse,
+			Sender:    "bot",
+			Content:   finalResponse,
 			Timestamp: time.Now(),
 			Token:     utils.CountToken(finalResponse),
 		},
@@ -130,10 +137,11 @@ func AskInConversation(conversationID primitive.ObjectID, content string, client
 	_, err := collection.UpdateOne(ctx, filter, update)
 	return err
 }
-func GetUserConversations(userID primitive.ObjectID, client *mongo.Client)(*[]ConversationSummary,error){
+// This function retrieves all conversations of a user from the database, it will be sorted based on the last updated_at time. (Warning: pagination is not implemented in this function)
+func GetUserConversations(userID primitive.ObjectID, client *mongo.Client) (*[]ConversationSummary, error) {
 	filter := bson.M{"user_id": userID}
 	projection := bson.M{"_id": 1, "topic": 1}
-	
+
 	findOptions := options.Find().SetProjection(projection).SetSort(bson.M{"updated_at": -1})
 	collection := client.Database("chatbot-server").Collection("conversation")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -151,7 +159,8 @@ func GetUserConversations(userID primitive.ObjectID, client *mongo.Client)(*[]Co
 
 	return &conversations, nil
 }
-func GetOneConversation(conversationID,userID primitive.ObjectID,client *mongo.Client)(*Conversation,error){
+// This function retrieves a single conversation of a user from the database. If the conversation does not exist or does not belong to the user, it returns an error.
+func GetOneConversation(conversationID, userID primitive.ObjectID, client *mongo.Client) (*Conversation, error) {
 	collection := client.Database("chatbot-server").Collection("conversation")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -173,4 +182,3 @@ func GetOneConversation(conversationID,userID primitive.ObjectID,client *mongo.C
 
 	return &conversation, nil
 }
-

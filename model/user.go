@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
+	"net/http"
 )
 
 type User struct {
@@ -76,18 +77,27 @@ func Login(email, password string, client *mongo.Client) (string, error) {
 	}
 	return user.ID.Hex(), nil
 }
-func IsTokenValid(c *gin.Context, redisClient *redis.Client) (bool) {
+func IsTokenValid(c *gin.Context, redisClient *redis.Client) {
 	cookie, err := c.Request.Cookie("jwt_token")
 	if err != nil {
-		return false
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": errors.New("not authenticate"),
+		})
+		return
 	}
 	token := cookie.Value
 	claims, err := auth.VerifyJWT(token)
 	if err != nil {
-		return false
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": errors.New("token expired"),
+		})
+		return
 	}
 	if _, err := redisClient.Get(context.TODO(), "blacklist_"+claims.UserID).Result(); err == nil {
-		return false
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": errors.New("token has been blacklisted"),
+		})
+		return
 	}
-	return true
+	return
 }

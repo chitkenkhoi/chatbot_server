@@ -2,16 +2,20 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"server/auth"
 	"server/model"
 	"server/utils"
+	ws "server/websocket"
+	"time"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
 	"github.com/joho/godotenv"
-	"server/auth"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"errors"
+	"server/chatbotAPI"
+	"github.com/gin-contrib/cors"
 )
 
 func main() {
@@ -21,9 +25,14 @@ func main() {
 	client := utils.ConnectDB()
 	redisClient := utils.ConnectRedis()
 	router := gin.Default()
-
-
-
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:5173"},
+		AllowMethods:     []string{"PUT", "PATCH","POST", "GET"},
+		AllowHeaders:     []string{"Origin"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge: 12 * time.Hour,
+	  }))
 	defer redisClient.Close()
 	defer func() {
 		if err := client.Disconnect(context.TODO()); err != nil {
@@ -35,20 +44,26 @@ func main() {
 	}
 	fmt.Println("Pinged your deployment. You successfully connected to MongoDB!")
 
-
-
+	router.GET("/ws", func(c *gin.Context) {
+		ws.HandleWebSocket(c)
+	})
+	router.GET("/test", func(c *gin.Context) {
+		for token := range chatbotapi.GetStreamingResponseFromModelAPIDemo() {
+			ws.BroadcastToken("",token)
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "success"})
+	})
 	router.GET("/ping", func(c *gin.Context) {
-		if token,err := c.Request.Cookie("jwt_token");err!=nil{
+		if token, err := c.Request.Cookie("jwt_token"); err != nil {
 			c.JSON(http.StatusOK, gin.H{"message": "no token"})
 			return
-		}else{
-			if _,er := auth.VerifyJWT(token.Value);er!=nil{
+		} else {
+			if _, er := auth.VerifyJWT(token.Value); er != nil {
 				c.JSON(http.StatusOK, gin.H{"message": "invalid token"})
 				return
+			}
+			c.JSON(http.StatusOK, gin.H{"message": "pong"})
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "pong"})
-
-	}
 	})
 	router.POST("/registerEmail", func(c *gin.Context) {
 		email := c.PostForm("email")
@@ -98,63 +113,106 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if token,er := auth.GenerateJWT(user.ID.Hex());er!=nil{
+		if token, er := auth.GenerateJWT(user.ID.Hex()); er != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": er.Error()})
 			return
-		}else{
+		} else {
 			c.SetCookie("jwt_token", token, 60*60*24, "/", "localhost", false, true)
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 	router.POST("/login", func(c *gin.Context) {
-		if  model.IsTokenValid(c, redisClient){
-			c.JSON(http.StatusOK, gin.H{"message": "token is already valid"})
-			return
-		}
+		// if model.IsTokenValid(c, redisClient) {
+		// 	c.JSON(http.StatusOK, gin.H{"message": "token is already valid"})
+		// 	return
+		// }
 		email := c.PostForm("email")
 		password := c.PostForm("password")
-		if userId,err:=model.Login(email, password, client); err != nil {
+		if userId, err := model.Login(email, password, client); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		} else {
-			if token,er := auth.GenerateJWT(userId);er!=nil{
+			if token, er := auth.GenerateJWT(userId); er != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": er.Error()})
 				return
-			}else{
+			} else {
 				c.SetCookie("jwt_token", token, 60*60*24, "/", "localhost", false, true)
 			}
 			c.JSON(http.StatusOK, gin.H{"message": "success", "userId": userId})
 		}
 	})
-	router.GET("/conversations",func(c *gin.Context){
-		if !model.IsTokenValid(c,redisClient){
-			c.JSON(http.StatusBadRequest,gin.H{
-				"error":errors.New("not authenticate"),
+	router.GET("/conversations", func(c *gin.Context) {
+		model.IsTokenValid(c, redisClient) 
+		cookie, _ := c.Request.Cookie("jwt_token")
+		token := cookie.Value
+		payload, _ := auth.DecodeJWT(token)
+		userID, err := primitive.ObjectIDFromHex(payload.UserID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err,
+			})
+			return
+		}
+		if conversations, err := model.GetUserConversations(userID, client); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err,
+			})
+			return
+		} else {
+			c.JSON(http.StatusOK, gin.H{
+				"message":       "success",
+				"conversations": conversations,
+			})
+			return
+		}
+	})
+	router.GET("/conversation/:id", func(c *gin.Context) {
+		model.IsTokenValid(c, redisClient) 
+		id := c.Param("id")
+		conversationID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": errors.New("invalid conversation id"),
 			})
 			return
 		}
 		cookie, _ := c.Request.Cookie("jwt_token")
 		token := cookie.Value
-		payload,_ := auth.DecodeJWT(token)
+		payload, _ := auth.DecodeJWT(token)
 		userID, err := primitive.ObjectIDFromHex(payload.UserID)
-		if err !=nil{
-			c.JSON(http.StatusBadRequest,gin.H{
-				"error":err,
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err,
 			})
 			return
 		}
-		if conversations,err:=model.GetUserConversations(userID,client);err!=nil{
-			c.JSON(http.StatusBadRequest,gin.H{
-				"error":err,
+		if conversation, err := model.GetOneConversation(conversationID, userID, client); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err,
 			})
 			return
-		}else{
-			c.JSON(http.StatusOK,gin.H{
-				"message":"success",
-				"conversations": conversations,
+		} else {
+			c.JSON(http.StatusOK, gin.H{
+				"message":      "success",
+				"conversation": conversation,
 			})
 			return
 		}
+	})
+	router.POST("/conversation/new", func(c *gin.Context) {
+		message := c.PostForm("message")
+		model.IsTokenValid(c, redisClient)
+		cookie, _ := c.Request.Cookie("jwt_token")
+		token := cookie.Value
+		payload, _ := auth.DecodeJWT(token)
+		id, err := primitive.ObjectIDFromHex(payload.UserID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err,
+			})
+			return
+		}
+		model.AskNewConversation(id,message,client)
 	})
 	router.Run(":5000")
 }

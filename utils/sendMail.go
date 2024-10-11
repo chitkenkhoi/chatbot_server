@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"math/rand"
+	"os"
 
 	"gopkg.in/gomail.v2"
 )
@@ -12,7 +13,7 @@ func GenerateOTP() string {
 }
 func SendMail(to, otp string) error {
 	m := gomail.NewMessage()
-	from := "chatbot.newgen123@gmail.com"
+	from := os.Getenv("APP_EMAIL")
 	subject := "OTP code"
 	m.SetHeader("From", from)
 	m.SetHeader("To", to)
@@ -31,7 +32,7 @@ func SendMail(to, otp string) error {
 	
 	m.SetBody("text/html", body)
 	
-	d := gomail.NewDialer("smtp.gmail.com", 587, from, "zhpm jmci jnkm nlxf")
+	d := gomail.NewDialer("smtp.gmail.com", 587, from, os.Getenv("APP_PASS"))
 	if err := d.DialAndSend(m); err != nil {
 		return err
 	}
