@@ -18,7 +18,9 @@ type Client struct {
 }
 var clients = make(map[string]*Client)
 var clientsMutex sync.Mutex
-
+func TestWebSocket() {
+	// This is a test function that does nothing.
+}
 func HandleWebSocket(c *gin.Context) {
 	var token string
 	var userID string
