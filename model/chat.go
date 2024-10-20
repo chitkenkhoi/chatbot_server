@@ -20,7 +20,6 @@ type Message struct {
 	Sender    string    `bson:"sender" json:"sender"`
 	Content   string    `bson:"content" json:"content"`
 	Timestamp time.Time `bson:"timestamp" json:"timestamp"`
-	Token     int       `bson:"token" json:"token"`
 }
 
 type ConversationMetadata struct {
@@ -54,20 +53,20 @@ func NewConversation(userID primitive.ObjectID, content string) *Conversation {
 			Sender:    "user",
 			Content:   content,
 			Timestamp: time.Now(),
-			Token:     utils.CountToken(content),
 		}},
 	}
 }
+
 // This function generates a response from the user's message using the model API and sends it to the user via websocket.
-func GenerateResponseAndWebsocket(userID, content string) string {
+func GenerateResponseAndWebsocket(userID, content, id string) string {
 	var completeResponse strings.Builder
 	isFirstToken := true
-	for token := range chatbotapi.GetStreamingResponseFromModelAPI(content) {
+	for token := range chatbotapi.GetStreamingResponseFromModelAPI(content, id) {
 		fmt.Print(token) // Print each token for debugging/viewing
 		// HANDLE WEBSOCKET HERE
 		// Add space before token, except for the first token
 		if !isFirstToken {
-			ws.BroadcastToken(userID, token + " ")
+			ws.BroadcastToken(userID, token+" ")
 			completeResponse.WriteString(" ")
 		} else {
 			isFirstToken = false
@@ -77,52 +76,67 @@ func GenerateResponseAndWebsocket(userID, content string) string {
 	}
 	return completeResponse.String()
 }
-//This function first creates a new conversation with the user's message, then generates a response using the model API and sends it to the user via websocket. Finally, it saves the conversation to the database.
+
+// This function first creates a new conversation with the user's message, then generates a response using the model API and sends it to the user via websocket. Finally, it saves the conversation to the database.
 func AskNewConversation(userID primitive.ObjectID, content string, client *mongo.Client) (primitive.ObjectID, error) {
 	conversation := NewConversation(userID, content)
-	finalResponse := GenerateResponseAndWebsocket(userID.Hex(), conversation.Messages[0].Content)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	collection := client.Database("chatbot-server").Collection("conversation")
-	conversation.AddMessage("bot", finalResponse)
 	result, err := collection.InsertOne(ctx, conversation)
 	if err != nil {
 		return primitive.NilObjectID, err
 	}
+
+	go func() {
+		finalResponse := GenerateResponseAndWebsocket(userID.Hex(), conversation.Messages[0].Content, result.InsertedID.(string))
+		filter := bson.M{"_id": result.InsertedID.(primitive.ObjectID)}
+		newMessage := Message{
+			Sender:    "bot",
+			Content:   finalResponse,
+			Timestamp: time.Now(),
+		}
+		update := bson.M{
+			"$push": bson.M{"messages": newMessage},
+			"$set":  bson.M{"updated_at": time.Now()},
+		}
+
+		if _, err := collection.UpdateOne(context.TODO(), filter, update); err != nil {
+			fmt.Println(err)
+		}
+	}()
+
 	return result.InsertedID.(primitive.ObjectID), nil
 }
-
 func (c *Conversation) AddMessage(sender, content string) {
 	c.Messages = append(c.Messages, Message{
 		Sender:    sender,
 		Content:   content,
 		Timestamp: time.Now(),
-		Token:     utils.CountToken(content),
 	})
 	c.UpdatedAt = time.Now()
 }
 func (c *Conversation) RemoveMessage(index int) {
 	c.Messages = append(c.Messages[:index], c.Messages[index+1:]...)
 }
+
 // This function generates a response from the whole conversation using the model API and sends it to the user via websocket. It then saves the question and answer to the database.
 func AskInConversation(conversationID primitive.ObjectID, content string, client *mongo.Client) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	content = utils.CleanString(content)
-	finalResponse := GenerateResponseAndWebsocket("", content)
+	finalResponse := GenerateResponseAndWebsocket("", content, conversationID.Hex())
 	filter := bson.M{"_id": conversationID}
 	newMessages := []Message{
 		{
 			Sender:    "user",
 			Content:   content,
 			Timestamp: time.Now(),
-			Token:     utils.CountToken(content),
 		},
 		{
 			Sender:    "bot",
 			Content:   finalResponse,
 			Timestamp: time.Now(),
-			Token:     utils.CountToken(finalResponse),
 		},
 	}
 	update := bson.M{
@@ -137,6 +151,7 @@ func AskInConversation(conversationID primitive.ObjectID, content string, client
 	_, err := collection.UpdateOne(ctx, filter, update)
 	return err
 }
+
 // This function retrieves all conversations of a user from the database, it will be sorted based on the last updated_at time. (Warning: pagination is not implemented in this function)
 func GetUserConversations(userID primitive.ObjectID, client *mongo.Client) (*[]ConversationSummary, error) {
 	filter := bson.M{"user_id": userID}
@@ -159,6 +174,7 @@ func GetUserConversations(userID primitive.ObjectID, client *mongo.Client) (*[]C
 
 	return &conversations, nil
 }
+
 // This function retrieves a single conversation of a user from the database. If the conversation does not exist or does not belong to the user, it returns an error.
 func GetOneConversation(conversationID, userID primitive.ObjectID, client *mongo.Client) (*Conversation, error) {
 	collection := client.Database("chatbot-server").Collection("conversation")

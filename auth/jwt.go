@@ -2,9 +2,9 @@ package auth
 
 import (
 	"errors"
-	"time"
-	"os"
 	"github.com/golang-jwt/jwt/v5"
+	"os"
+	"time"
 )
 
 var secretKey = []byte(os.Getenv("JWT_SECRET"))
