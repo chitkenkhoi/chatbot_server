@@ -1,120 +1,122 @@
 package chatbotapi
+
 import (
-    "bufio"
-    "fmt"
-    "net/http"
-    "strings"
-    "encoding/json"
-    "os"
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
 )
-func GetStreamingResponseFromModelAPIDemo()<-chan string{
-    tokenChan := make(chan string)
 
-    go func() {
-        // Close the channel when the function returns
-        defer close(tokenChan)
+func GetStreamingResponseFromModelAPIDemo() <-chan string {
+	tokenChan := make(chan string)
 
-        // Prepare the request body
-        // reqBody := map[string]string{"conversation": message}
-        // jsonBody, err := json.Marshal(reqBody)
-        // if err != nil {
-        //     fmt.Println("Error marshalling JSON:", err)
-        //     return
-        // }
+	go func() {
+		// Close the channel when the function returns
+		defer close(tokenChan)
 
-        // Create a new request
-        req, err := http.NewRequest("GET", os.Getenv("MODEL_API_URL_DEMO"), strings.NewReader("abc"))
-        if err != nil {
-            fmt.Println("Error creating request:", err)
-            return
-        }
+		// Prepare the request body
+		// reqBody := map[string]string{"conversation": message}
+		// jsonBody, err := json.Marshal(reqBody)
+		// if err != nil {
+		//     fmt.Println("Error marshalling JSON:", err)
+		//     return
+		// }
 
-        // Set headers
-        req.Header.Set("Content-Type", "application/json")
-        req.Header.Set("ngrok-skip-browser-warning","hello")
+		// Create a new request
+		req, err := http.NewRequest("GET", os.Getenv("MODEL_API_URL_DEMO"), strings.NewReader("abc"))
+		if err != nil {
+			fmt.Println("Error creating request:", err)
+			return
+		}
 
-        // Send the request
-        client := &http.Client{}
-        resp, err := client.Do(req)
-        if err != nil {
-            fmt.Println("Error sending request:", err)
-            return
-        }
-        defer resp.Body.Close()
+		// Set headers
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("ngrok-skip-browser-warning", "hello")
 
-        // Check the response status
-        if resp.StatusCode != http.StatusOK {
-            fmt.Println("Unexpected status code:", resp.StatusCode)
-            return
-        }
+		// Send the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Println("Error sending request:", err)
+			return
+		}
+		defer resp.Body.Close()
 
-        // Read the response body line by line
-        scanner := bufio.NewScanner(resp.Body)
-        for scanner.Scan() {
-            token := scanner.Text()
-            tokenChan <- token
-        }
+		// Check the response status
+		if resp.StatusCode != http.StatusOK {
+			fmt.Println("Unexpected status code:", resp.StatusCode)
+			return
+		}
 
-        if err := scanner.Err(); err != nil {
-            fmt.Println("Error reading response:", err)
-        }
-    }()
+		// Read the response body line by line
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			token := scanner.Text()
+			tokenChan <- token
+		}
 
-    return tokenChan
+		if err := scanner.Err(); err != nil {
+			fmt.Println("Error reading response:", err)
+		}
+	}()
+
+	return tokenChan
 }
-func GetStreamingResponseFromModelAPI(message string) <-chan string {
-    // Create a channel to send tokens
-    tokenChan := make(chan string)
+func GetStreamingResponseFromModelAPI(message string, id string) <-chan string {
+	// Create a channel to send tokens
+	tokenChan := make(chan string)
 
-    go func() {
-        // Close the channel when the function returns
-        defer close(tokenChan)
+	go func() {
+		// Close the channel when the function returns
+		defer close(tokenChan)
 
-        // Prepare the request body
-        reqBody := map[string]string{"conversation": message}
-        jsonBody, err := json.Marshal(reqBody)
-        if err != nil {
-            fmt.Println("Error marshalling JSON:", err)
-            return
-        }
+		// Prepare the request body
+		reqBody := map[string]string{"query": message, "conversation_id": id}
+		jsonBody, err := json.Marshal(reqBody)
+		if err != nil {
+			fmt.Println("Error marshalling JSON:", err)
+			return
+		}
 
-        // Create a new request
-        req, err := http.NewRequest("POST", os.Getenv("MODEL_API_URL"), strings.NewReader(string(jsonBody)))
-        if err != nil {
-            fmt.Println("Error creating request:", err)
-            return
-        }
+		// Create a new request
+		req, err := http.NewRequest("POST", os.Getenv("MODEL_API_URL"), strings.NewReader(string(jsonBody)))
+		if err != nil {
+			fmt.Println("Error creating request:", err)
+			return
+		}
 
-        // Set headers
-        req.Header.Set("Content-Type", "application/json")
-        req.Header.Set("ngrok-skip-browser-warning","hello")
+		// Set headers
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("ngrok-skip-browser-warning", "hello")
 
-        // Send the request
-        client := &http.Client{}
-        resp, err := client.Do(req)
-        if err != nil {
-            fmt.Println("Error sending request:", err)
-            return
-        }
-        defer resp.Body.Close()
+		// Send the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Println("Error sending request:", err)
+			return
+		}
+		defer resp.Body.Close()
 
-        // Check the response status
-        if resp.StatusCode != http.StatusOK {
-            fmt.Println("Unexpected status code:", resp.StatusCode)
-            return
-        }
+		// Check the response status
+		if resp.StatusCode != http.StatusOK {
+			fmt.Println("Unexpected status code:", resp.StatusCode)
+			return
+		}
 
-        // Read the response body line by line
-        scanner := bufio.NewScanner(resp.Body)
-        for scanner.Scan() {
-            token := scanner.Text()
-            tokenChan <- token
-        }
+		// Read the response body line by line
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			token := scanner.Text()
+			tokenChan <- token
+		}
 
-        if err := scanner.Err(); err != nil {
-            fmt.Println("Error reading response:", err)
-        }
-    }()
+		if err := scanner.Err(); err != nil {
+			fmt.Println("Error reading response:", err)
+		}
+	}()
 
-    return tokenChan
+	return tokenChan
 }

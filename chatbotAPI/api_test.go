@@ -1,15 +1,18 @@
 package chatbotapi_test
-import(
-	"testing"
+
+import (
 	"fmt"
 	"server/chatbotAPI"
+	"testing"
 )
-func TestGetStreamingResponseFromModelAPI(t *testing.T){
-	for token := range chatbotapi.GetStreamingResponseFromModelAPI("Nước bọt giúp tiêu hóa như thế nào?"){
+
+func TestGetStreamingResponseFromModelAPI(t *testing.T) {
+	for token := range chatbotapi.GetStreamingResponseFromModelAPI("Nước bọt giúp tiêu hóa như thế nào?", "123") {
 		fmt.Print(token)
 	}
 	fmt.Println("Channel is closed, all data received!!")
 }
+
 // func TestCurl(t *testing.T){
 // 	response, err := http.Get("https://9e5c-34-87-53-195.ngrok-free.app/ping")
 // 	if err != nil {
