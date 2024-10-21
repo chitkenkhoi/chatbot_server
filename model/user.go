@@ -3,23 +3,24 @@ package model
 import (
 	"context"
 	"errors"
+	"net/http"
+	"server/auth"
 	"server/utils"
 	"time"
-	"server/auth"
+
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
-	"net/http"
 )
 
 type User struct {
 	ID             primitive.ObjectID `json:"id" bson:"_id,omitempty"`
 	Username       string             `json:"username" bson:"username"`
 	Email          string             `json:"email" bson:"email"`
-	HashedPassword string             `json:"-" bson:"hashedPassword"`
+	HashedPassword string             `json:"hashedPassword" bson:"hashedPassword"`
 }
 
 func RegisterNewEmail(email string, client *mongo.Client, redisClient *redis.Client) error {

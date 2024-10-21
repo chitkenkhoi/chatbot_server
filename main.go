@@ -126,9 +126,10 @@ func main() {
 		// 	c.JSON(http.StatusOK, gin.H{"message": "token is already valid"})
 		// 	return
 		// }
-		email := c.PostForm("email")
-		password := c.PostForm("password")
-		if userId, err := model.Login(email, password, client); err != nil {
+		var user model.User
+		c.ShouldBind(&user)
+
+		if userId, err := model.Login(user.Email, user.HashedPassword, client); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		} else {
@@ -200,8 +201,9 @@ func main() {
 		}
 	})
 	router.POST("/conversation/new", func(c *gin.Context) {
-		message := c.PostForm("message")
 		model.IsTokenValid(c, redisClient)
+		message := c.PostForm("message")
+		fmt.Println(message)
 		cookie, _ := c.Request.Cookie("jwt_token")
 		token := cookie.Value
 		payload, _ := auth.DecodeJWT(token)
