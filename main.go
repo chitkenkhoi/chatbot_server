@@ -6,16 +6,17 @@ import (
 	"fmt"
 	"net/http"
 	"server/auth"
+	chatbotapi "server/chatbotAPI"
 	"server/model"
 	"server/utils"
 	ws "server/websocket"
 	"time"
+
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"server/chatbotAPI"
-	"github.com/gin-contrib/cors"
 )
 
 func main() {
@@ -26,13 +27,13 @@ func main() {
 	redisClient := utils.ConnectRedis()
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173"},
-		AllowMethods:     []string{"PUT", "PATCH","POST", "GET"},
-		AllowHeaders:     []string{"Origin"},
+		AllowOrigins:     []string{"http://localhost:8081"}, // Add your frontend origin
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
-		MaxAge: 12 * time.Hour,
-	  }))
+		MaxAge:           12 * time.Hour,
+	}))
 	defer redisClient.Close()
 	defer func() {
 		if err := client.Disconnect(context.TODO()); err != nil {
@@ -43,13 +44,13 @@ func main() {
 		panic(err)
 	}
 	fmt.Println("Pinged your deployment. You successfully connected to MongoDB!")
-
+	// Create a new WebSocket connection
 	router.GET("/ws", func(c *gin.Context) {
 		ws.HandleWebSocket(c)
 	})
 	router.GET("/test", func(c *gin.Context) {
 		for token := range chatbotapi.GetStreamingResponseFromModelAPIDemo() {
-			ws.BroadcastToken("",token)
+			ws.BroadcastToken("", token)
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
@@ -95,7 +96,7 @@ func main() {
 		var user model.User
 		c.ShouldBind(&user)
 
-		if user.Username == "" || user.Email == "" || user.HashedPassword == "" {
+		if user.Username == "" || user.Email == "" || user.Password == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "username, email, and password are required"})
 			return
 		}
@@ -122,6 +123,9 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 	router.POST("/login", func(c *gin.Context) {
+		if !model.IsTokenNotValid(c, redisClient) {
+			return
+		}
 		// if model.IsTokenValid(c, redisClient) {
 		// 	c.JSON(http.StatusOK, gin.H{"message": "token is already valid"})
 		// 	return
@@ -129,7 +133,7 @@ func main() {
 		var user model.User
 		c.ShouldBind(&user)
 
-		if userId, err := model.Login(user.Email, user.HashedPassword, client); err != nil {
+		if userId, err := model.Login(user.Email, user.Password, client); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		} else {
@@ -143,7 +147,9 @@ func main() {
 		}
 	})
 	router.GET("/conversations", func(c *gin.Context) {
-		model.IsTokenValid(c, redisClient) 
+		if !model.IsTokenValid(c, redisClient){
+			return
+		}
 		cookie, _ := c.Request.Cookie("jwt_token")
 		token := cookie.Value
 		payload, _ := auth.DecodeJWT(token)
@@ -168,7 +174,9 @@ func main() {
 		}
 	})
 	router.GET("/conversation/:id", func(c *gin.Context) {
-		model.IsTokenValid(c, redisClient) 
+		if !model.IsTokenValid(c, redisClient) {
+			return
+		}
 		id := c.Param("id")
 		conversationID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
@@ -201,7 +209,9 @@ func main() {
 		}
 	})
 	router.POST("/conversation/new", func(c *gin.Context) {
-		model.IsTokenValid(c, redisClient)
+		if !model.IsTokenValid(c, redisClient) {
+			return
+		}
 		message := c.PostForm("message")
 		fmt.Println(message)
 		cookie, _ := c.Request.Cookie("jwt_token")
@@ -214,7 +224,22 @@ func main() {
 			})
 			return
 		}
-		model.AskNewConversation(id,message,client)
+		model.AskNewConversation(id, message, client)
+	})
+	router.POST("/conversation/:id", func(c *gin.Context) {
+		if !model.IsTokenValid(c, redisClient) {
+			return
+		}
+		message := c.PostForm("message")
+		id := c.Param("id")
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err,
+			})
+			return
+		}
+		model.AskInConversation(objectID, message, client)
 	})
 	router.Run(":5000")
 }

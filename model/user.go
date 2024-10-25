@@ -20,7 +20,7 @@ type User struct {
 	ID             primitive.ObjectID `json:"id" bson:"_id,omitempty"`
 	Username       string             `json:"username" bson:"username"`
 	Email          string             `json:"email" bson:"email"`
-	HashedPassword string             `json:"hashedPassword" bson:"hashedPassword"`
+	Password string             `json:"password" bson:"password"`
 }
 
 func RegisterNewEmail(email string, client *mongo.Client, redisClient *redis.Client) error {
@@ -54,11 +54,11 @@ func VerifyOTP(email string, otp string, redisClient *redis.Client) error {
 func RegisterNewUser(user *User, client *mongo.Client, redisClient *redis.Client) error {
 	db := client.Database("chatbot-server")
 	collection := db.Collection("user")
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.HashedPassword), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
-	user.HashedPassword = string(hashedPassword)
+	user.Password = string(hashedPassword)
 	result, err2 := collection.InsertOne(context.TODO(), user)
 	if err2 != nil {
 		return err2
@@ -73,18 +73,18 @@ func Login(email, password string, client *mongo.Client) (string, error) {
 	if err := collection.FindOne(context.TODO(), bson.M{"email": email}).Decode(&user); err != nil {
 		return "", errors.New("email or password is incorrect")
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.HashedPassword), []byte(password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		return "", errors.New("email or password is incorrect")
 	}
 	return user.ID.Hex(), nil
 }
-func IsTokenValid(c *gin.Context, redisClient *redis.Client) {
+func IsTokenValid(c *gin.Context, redisClient *redis.Client) bool{
 	cookie, err := c.Request.Cookie("jwt_token")
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": errors.New("not authenticate"),
 		})
-		return
+		return false
 	}
 	token := cookie.Value
 	claims, err := auth.VerifyJWT(token)
@@ -92,13 +92,32 @@ func IsTokenValid(c *gin.Context, redisClient *redis.Client) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": errors.New("token expired"),
 		})
-		return
+		return	false
 	}
 	if _, err := redisClient.Get(context.TODO(), "blacklist_"+claims.UserID).Result(); err == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": errors.New("token has been blacklisted"),
 		})
-		return
+		return 		false
 	}
-	return
+	return	true
+}
+func IsTokenNotValid(c *gin.Context, redisClient *redis.Client) bool {
+	cookie, err := c.Request.Cookie("jwt_token")
+	if err != nil {
+		return	true
+	}
+	token := cookie.Value
+	claims, err := auth.VerifyJWT(token)
+	if err != nil {
+		return true
+	}
+	if _, err := redisClient.Get(context.TODO(), "blacklist_"+claims.UserID).Result(); err == nil {
+		return true
+	}
+
+	c.JSON(200,gin.H{
+		"message":"already login",
+	})
+	return false
 }

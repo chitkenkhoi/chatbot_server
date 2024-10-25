@@ -49,6 +49,7 @@ func NewConversation(userID primitive.ObjectID, content string) *Conversation {
 		UserID:    userID,
 		StartedAt: time.Now(),
 		UpdatedAt: time.Now(),
+		Topic: utils.TrimString(content),
 		Messages: []Message{{
 			Sender:    "user",
 			Content:   content,

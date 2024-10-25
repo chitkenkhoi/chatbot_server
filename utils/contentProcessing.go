@@ -17,3 +17,12 @@ func CountToken(s string)int{
 	// Return the number of words
 	return len(words)
 }
+func TrimString(s string) string {
+	// Check the length of the string
+	if len(s) < 15 {
+		// If the string is shorter than 15 characters, return it as is
+		return s
+	}
+	// If the string is 15 or more characters, return only the first 15 characters
+	return s[:15]
+}
