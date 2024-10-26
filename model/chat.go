@@ -49,7 +49,7 @@ func NewConversation(userID primitive.ObjectID, content string) *Conversation {
 		UserID:    userID,
 		StartedAt: time.Now(),
 		UpdatedAt: time.Now(),
-		Topic: utils.TrimString(content),
+		Topic:     utils.TrimString(content),
 		Messages: []Message{{
 			Sender:    "user",
 			Content:   content,
@@ -67,11 +67,11 @@ func GenerateResponseAndWebsocket(userID, content, id string) string {
 		// HANDLE WEBSOCKET HERE
 		// Add space before token, except for the first token
 		if !isFirstToken {
-			ws.BroadcastToken(userID, token+" ")
+			ws.BroadcastToken(userID, id, " "+token)
 			completeResponse.WriteString(" ")
 		} else {
 			isFirstToken = false
-			ws.BroadcastToken(userID, token)
+			ws.BroadcastToken(userID, id, token)
 		}
 		completeResponse.WriteString(token)
 	}
@@ -90,7 +90,7 @@ func AskNewConversation(userID primitive.ObjectID, content string, client *mongo
 	}
 
 	go func() {
-		finalResponse := GenerateResponseAndWebsocket(userID.Hex(), conversation.Messages[0].Content, result.InsertedID.(string))
+		finalResponse := GenerateResponseAndWebsocket(userID.Hex(), conversation.Messages[0].Content, result.InsertedID.(primitive.ObjectID).Hex())
 		filter := bson.M{"_id": result.InsertedID.(primitive.ObjectID)}
 		newMessage := Message{
 			Sender:    "bot",
@@ -126,8 +126,25 @@ func AskInConversation(conversationID primitive.ObjectID, content string, client
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	content = utils.CleanString(content)
-	finalResponse := GenerateResponseAndWebsocket("", content, conversationID.Hex())
+	collection1 := client.Database("chatbot-server").Collection("conversation")
+	projection := bson.D{{"user_id", 1}, {"_id", 0}}
+
+	// Create a filter for the _id
+	filter1 := bson.D{{"_id", conversationID}}
+	var result struct {
+		UserID primitive.ObjectID `bson:"user_id"`
+	}
+	err1 := collection1.FindOne(
+		ctx,
+		filter1,
+		options.FindOne().SetProjection(projection),
+	).Decode(&result)
+	if err1 != nil {
+		return err1
+	}
+	finalResponse := GenerateResponseAndWebsocket(result.UserID.Hex(), content, conversationID.Hex())
 	filter := bson.M{"_id": conversationID}
+
 	newMessages := []Message{
 		{
 			Sender:    "user",

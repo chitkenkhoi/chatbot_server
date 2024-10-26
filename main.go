@@ -27,7 +27,7 @@ func main() {
 	redisClient := utils.ConnectRedis()
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:8081"}, // Add your frontend origin
+		AllowOrigins:     []string{"http://localhost:8080"}, // Add your frontend origin
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -45,12 +45,12 @@ func main() {
 	}
 	fmt.Println("Pinged your deployment. You successfully connected to MongoDB!")
 	// Create a new WebSocket connection
-	router.GET("/ws", func(c *gin.Context) {
+	router.GET("/ws/:id", func(c *gin.Context) {
 		ws.HandleWebSocket(c)
 	})
 	router.GET("/test", func(c *gin.Context) {
 		for token := range chatbotapi.GetStreamingResponseFromModelAPIDemo() {
-			ws.BroadcastToken("", token)
+			ws.BroadcastToken("", "", token)
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
@@ -147,7 +147,7 @@ func main() {
 		}
 	})
 	router.GET("/conversations", func(c *gin.Context) {
-		if !model.IsTokenValid(c, redisClient){
+		if !model.IsTokenValid(c, redisClient) {
 			return
 		}
 		cookie, _ := c.Request.Cookie("jwt_token")
@@ -224,7 +224,15 @@ func main() {
 			})
 			return
 		}
-		model.AskNewConversation(id, message, client)
+		if id, er := model.AskNewConversation(id, message, client); er != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err,
+			})
+		} else {
+			c.JSON(http.StatusOK, gin.H{
+				"cid": id.Hex(),
+			})
+		}
 	})
 	router.POST("/conversation/:id", func(c *gin.Context) {
 		if !model.IsTokenValid(c, redisClient) {
@@ -239,7 +247,16 @@ func main() {
 			})
 			return
 		}
-		model.AskInConversation(objectID, message, client)
+		if err := model.AskInConversation(objectID, message, client); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err,
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"message": "success",
+		})
+		return
 	})
 	router.Run(":5000")
 }
