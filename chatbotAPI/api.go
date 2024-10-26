@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 	"os"
 	"strings"
 )
@@ -76,14 +77,14 @@ func GetStreamingResponseFromModelAPI(message string, id string) <-chan string {
 		reqBody := map[string]string{"query": message, "conversation_id": id}
 		jsonBody, err := json.Marshal(reqBody)
 		if err != nil {
-			fmt.Println("Error marshalling JSON:", err)
+			tokenChan <- "Sorry, something went wrong while processing your request"
 			return
 		}
 
 		// Create a new request
 		req, err := http.NewRequest("POST", os.Getenv("MODEL_API_URL"), strings.NewReader(string(jsonBody)))
 		if err != nil {
-			fmt.Println("Error creating request:", err)
+			tokenChan <- "Sorry, there was an error connecting to the service"
 			return
 		}
 
@@ -92,10 +93,17 @@ func GetStreamingResponseFromModelAPI(message string, id string) <-chan string {
 		req.Header.Set("ngrok-skip-browser-warning", "hello")
 
 		// Send the request
-		client := &http.Client{}
+		client := &http.Client{
+			Timeout: 50 * time.Second,
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			fmt.Println("Error sending request:", err)
+			if strings.Contains(err.Error(), "timeout") {
+				tokenChan <- "Sorry, the request timed out. Please try again"
+			} else {
+				tokenChan <- "Sorry, there was a network error. Please check your connection"
+			}
 			return
 		}
 		defer resp.Body.Close()
@@ -103,6 +111,7 @@ func GetStreamingResponseFromModelAPI(message string, id string) <-chan string {
 		// Check the response status
 		if resp.StatusCode != http.StatusOK {
 			fmt.Println("Unexpected status code:", resp.StatusCode)
+			tokenChan <- fmt.Sprintf("Sorry, received unexpected response (Status: %d)", resp.StatusCode)
 			return
 		}
 
@@ -111,10 +120,12 @@ func GetStreamingResponseFromModelAPI(message string, id string) <-chan string {
 		for scanner.Scan() {
 			token := scanner.Text()
 			tokenChan <- token
+			time.Sleep(100 * time.Millisecond)
 		}
 
 		if err := scanner.Err(); err != nil {
 			fmt.Println("Error reading response:", err)
+			tokenChan <- "Sorry, there was an error reading the response"
 		}
 	}()
 

@@ -123,21 +123,18 @@ func (c *Conversation) RemoveMessage(index int) {
 
 // This function generates a response from the whole conversation using the model API and sends it to the user via websocket. It then saves the question and answer to the database.
 func AskInConversation(conversationID primitive.ObjectID, content string, client *mongo.Client) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	content = utils.CleanString(content)
 	collection1 := client.Database("chatbot-server").Collection("conversation")
-	projection := bson.D{{"user_id", 1}, {"_id", 0}}
 
 	// Create a filter for the _id
-	filter1 := bson.D{{"_id", conversationID}}
 	var result struct {
 		UserID primitive.ObjectID `bson:"user_id"`
 	}
 	err1 := collection1.FindOne(
 		ctx,
-		filter1,
-		options.FindOne().SetProjection(projection),
+		bson.M{"_id": conversationID},
 	).Decode(&result)
 	if err1 != nil {
 		return err1
@@ -176,6 +173,27 @@ func GetUserConversations(userID primitive.ObjectID, client *mongo.Client) (*[]C
 	projection := bson.M{"_id": 1, "topic": 1}
 
 	findOptions := options.Find().SetProjection(projection).SetSort(bson.M{"updated_at": -1})
+	collection := client.Database("chatbot-server").Collection("conversation")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cursor, err := collection.Find(ctx, filter, findOptions)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var conversations []ConversationSummary
+	if err = cursor.All(ctx, &conversations); err != nil {
+		return nil, err
+	}
+
+	return &conversations, nil
+}
+func GetUserConversationsPage(userID primitive.ObjectID, client *mongo.Client,page int64) (*[]ConversationSummary, error) {
+	filter := bson.M{"user_id": userID}
+	projection := bson.M{"_id": 1, "topic": 1}
+	skip := (page - 1) * 8
+	findOptions := options.Find().SetProjection(projection).SetSort(bson.M{"updated_at": -1}).SetLimit(8).SetSkip(skip)
 	collection := client.Database("chatbot-server").Collection("conversation")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

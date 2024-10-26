@@ -10,6 +10,7 @@ import (
 	"server/model"
 	"server/utils"
 	ws "server/websocket"
+	"strconv"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -133,7 +134,7 @@ func main() {
 		var user model.User
 		c.ShouldBind(&user)
 
-		if userId, err := model.Login(user.Email, user.Password, client); err != nil {
+		if userId,userName, err := model.Login(user.Email, user.Password, client); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		} else {
@@ -143,7 +144,44 @@ func main() {
 			} else {
 				c.SetCookie("jwt_token", token, 60*60*24, "/", "localhost", false, true)
 			}
-			c.JSON(http.StatusOK, gin.H{"message": "success", "userId": userId})
+			c.JSON(http.StatusOK, gin.H{"message": "success", "userId": userId, "userEmail":user.Email,"userName":userName})
+		}
+	})
+	router.GET("/conversations/:id", func(c *gin.Context) {
+		if !model.IsTokenValid(c, redisClient) {
+			return
+		}
+		var id int64
+		var er error
+		id,er = strconv.ParseInt(c.Param("id"),10,64)
+		if er!=nil || id <=0{
+			c.JSON(http.StatusBadRequest,gin.H{
+				"error":"bad page",
+			})
+			return
+		}
+		
+		cookie, _ := c.Request.Cookie("jwt_token")
+		token := cookie.Value
+		payload, _ := auth.DecodeJWT(token)
+		userID, err := primitive.ObjectIDFromHex(payload.UserID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err,
+			})
+			return
+		}
+		if conversations, err := model.GetUserConversationsPage(userID, client,id); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err,
+			})
+			return
+		} else {
+			c.JSON(http.StatusOK, gin.H{
+				"message":       "success",
+				"conversations": conversations,
+			})
+			return
 		}
 	})
 	router.GET("/conversations", func(c *gin.Context) {

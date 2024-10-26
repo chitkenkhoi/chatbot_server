@@ -134,7 +134,7 @@ func BroadcastToken(userID, chatID, token string) {
 	clientID := userID + ":" + chatID
 
 	// Create a timeout channel
-	timeout := time.After(20 * time.Second) // Adjust timeout duration as needed
+	timeout := time.After(50 * time.Second) // Adjust timeout duration as needed
 
 	// Create a ticker for polling
 	ticker := time.NewTicker(100 * time.Millisecond) // Poll every 100ms

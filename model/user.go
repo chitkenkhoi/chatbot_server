@@ -66,17 +66,17 @@ func RegisterNewUser(user *User, client *mongo.Client, redisClient *redis.Client
 	user.ID = result.InsertedID.(primitive.ObjectID)
 	return nil
 }
-func Login(email, password string, client *mongo.Client) (string, error) {
+func Login(email, password string, client *mongo.Client) (string,string, error) {
 	db := client.Database("chatbot-server")
 	collection := db.Collection("user")
 	var user User
 	if err := collection.FindOne(context.TODO(), bson.M{"email": email}).Decode(&user); err != nil {
-		return "", errors.New("email or password is incorrect")
+		return "","", errors.New("email or password is incorrect")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		return "", errors.New("email or password is incorrect")
+		return "","", errors.New("email or password is incorrect")
 	}
-	return user.ID.Hex(), nil
+	return user.ID.Hex(),user.Username, nil
 }
 func IsTokenValid(c *gin.Context, redisClient *redis.Client) bool{
 	cookie, err := c.Request.Cookie("jwt_token")
