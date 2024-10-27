@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"server/auth"
 	chatbotapi "server/chatbotAPI"
 	"server/model"
@@ -28,7 +29,7 @@ func main() {
 	redisClient := utils.ConnectRedis()
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:8080"}, // Add your frontend origin
+		AllowOrigins:     []string{os.Getenv("FRONTEND_URL"),"http://localhost:8081"}, // Add your frontend origin
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -80,6 +81,9 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 	router.POST("/verify_register_OTP", func(c *gin.Context) {
+		if !model.IsTokenNotValid(c, redisClient) {
+			return
+		}
 		email := c.PostForm("email")
 		otp := c.PostForm("otp")
 		if email == "" || otp == "" {
