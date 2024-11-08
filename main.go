@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 	"server/auth"
-	chatbotapi "server/chatbotAPI"
+	geminiapi "server/geminiAPI"
 	"server/model"
 	"server/utils"
 	ws "server/websocket"
@@ -29,7 +29,7 @@ func main() {
 	redisClient := utils.ConnectRedis()
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{os.Getenv("FRONTEND_URL"),"http://localhost:8081"}, // Add your frontend origin
+		AllowOrigins:     []string{os.Getenv("FRONTEND_URL"), "http://localhost:8081"}, // Add your frontend origin
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -48,13 +48,21 @@ func main() {
 	fmt.Println("Pinged your deployment. You successfully connected to MongoDB!")
 	// Create a new WebSocket connection
 	router.GET("/ws/:id", func(c *gin.Context) {
-		ws.HandleWebSocket(c)
+		ws.HandleWebSocket(c,client)
 	})
-	router.GET("/test", func(c *gin.Context) {
-		for token := range chatbotapi.GetStreamingResponseFromModelAPIDemo() {
-			ws.BroadcastToken("", "", token)
+	router.GET("/test/:userid", func(c *gin.Context) {
+		id := "670aa7a22065dc72cb99f733"
+		userid := c.Param("userid")
+		objectId1, _ := primitive.ObjectIDFromHex(id)
+		objectId2, _ := primitive.ObjectIDFromHex(userid)
+		if err := model.CheckConversationUser( objectId2,objectId1, client); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
+
 	})
 	router.GET("/ping", func(c *gin.Context) {
 		if token, err := c.Request.Cookie("jwt_token"); err != nil {
@@ -98,9 +106,11 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 	router.POST("/register", func(c *gin.Context) {
+		if !model.IsTokenNotValid(c, redisClient) {
+			return
+		}
 		var user model.User
 		c.ShouldBind(&user)
-
 		if user.Username == "" || user.Email == "" || user.Password == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "username, email, and password are required"})
 			return
@@ -138,7 +148,7 @@ func main() {
 		var user model.User
 		c.ShouldBind(&user)
 
-		if userId,userName, err := model.Login(user.Email, user.Password, client); err != nil {
+		if userId, userName, err := model.Login(user.Email, user.Password, client); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		} else {
@@ -148,7 +158,7 @@ func main() {
 			} else {
 				c.SetCookie("jwt_token", token, 60*60*24, "/", "localhost", false, true)
 			}
-			c.JSON(http.StatusOK, gin.H{"message": "success", "userId": userId, "userEmail":user.Email,"userName":userName})
+			c.JSON(http.StatusOK, gin.H{"message": "success", "userId": userId, "userEmail": user.Email, "userName": userName})
 		}
 	})
 	router.GET("/conversations/:id", func(c *gin.Context) {
@@ -157,14 +167,14 @@ func main() {
 		}
 		var id int64
 		var er error
-		id,er = strconv.ParseInt(c.Param("id"),10,64)
-		if er!=nil || id <=0{
-			c.JSON(http.StatusBadRequest,gin.H{
-				"error":"bad page",
+		id, er = strconv.ParseInt(c.Param("id"), 10, 64)
+		if er != nil || id <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "bad page",
 			})
 			return
 		}
-		
+
 		cookie, _ := c.Request.Cookie("jwt_token")
 		token := cookie.Value
 		payload, _ := auth.DecodeJWT(token)
@@ -175,7 +185,7 @@ func main() {
 			})
 			return
 		}
-		if conversations, err := model.GetUserConversationsPage(userID, client,id); err != nil {
+		if conversations, err := model.GetUserConversationsPage(userID, client, id); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err,
 			})
@@ -187,6 +197,39 @@ func main() {
 			})
 			return
 		}
+	})
+	router.GET("/test/conversations", func(c *gin.Context) {
+		type Test struct {
+			ID          string    `json:"id"`
+			Title       string    `json:"title"`
+			LastMessage string    `json:"lastMessage"`
+			UpdatedAt   time.Time `json:"updatedAt"`
+			Unread      bool      `json:"unread"`
+		}
+		conversation1 := Test{
+			ID:          "1",
+			Title:       "First Conversation",
+			LastMessage: "Last message in the conversation",
+			UpdatedAt:   time.Date(2024, 3, 8, 12, 0, 0, 0, time.UTC),
+			Unread:      false,
+		}
+		conversation2 := Test{
+			ID:          "2",
+			Title:       "Second Conversation",
+			LastMessage: "Last message in the conversation",
+			UpdatedAt:   time.Date(2024, 3, 9, 12, 0, 0, 0, time.UTC),
+			Unread:      true,
+		}
+		conversation3 := Test{
+			ID:          "3",
+			Title:       "Thirsd Conversation",
+			LastMessage: "Last message in the conversation3",
+			UpdatedAt:   time.Date(2024, 3, 9, 18, 0, 0, 0, time.UTC),
+			Unread:      false,
+		}
+		test := []Test{conversation1, conversation2, conversation3}
+
+		c.JSON(http.StatusOK, gin.H{"list": test})
 	})
 	router.GET("/conversations", func(c *gin.Context) {
 		if !model.IsTokenValid(c, redisClient) {
@@ -254,6 +297,10 @@ func main() {
 		if !model.IsTokenValid(c, redisClient) {
 			return
 		}
+		mode := c.PostForm("mode")
+		if mode != "1" && mode != "2" {
+			mode = "1"
+		}
 		message := c.PostForm("message")
 		fmt.Println(message)
 		cookie, _ := c.Request.Cookie("jwt_token")
@@ -266,7 +313,7 @@ func main() {
 			})
 			return
 		}
-		if id, er := model.AskNewConversation(id, message, client); er != nil {
+		if id, er := model.AskNewConversation(id, message, client, mode); er != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err,
 			})
@@ -298,7 +345,23 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{
 			"message": "success",
 		})
-		return
+	})
+	router.GET("/logout", func(c *gin.Context) {
+		c.SetCookie("jwt_token", "", -1, "/", "localhost", false, true)
+		c.JSON(http.StatusOK, gin.H{"message": "success"})
+	})
+	router.POST("/getTopic", func(c *gin.Context) {
+		question := c.PostForm("question")
+		if question == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "question is required"})
+			return
+		}
+		if topic, err := geminiapi.GetTopic(question, false); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		} else {
+			c.JSON(http.StatusOK, gin.H{"message": "success", "topic": topic})
+		}
 	})
 	router.Run(":5000")
 }

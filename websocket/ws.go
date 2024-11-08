@@ -6,9 +6,12 @@ import (
 	"server/auth"
 	"sync"
 	"time"
-
+	"context"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 var upgrader = websocket.Upgrader{
@@ -28,7 +31,7 @@ var clientsMutex sync.Mutex
 func TestWebSocket() {
 	// This is a test function that does nothing.
 }
-func HandleWebSocket(c *gin.Context) {
+func HandleWebSocket(c *gin.Context,clientMongo *mongo.Client) {
 	var token string
 	var userID string
 	chatID := c.Param("id")
@@ -52,7 +55,35 @@ func HandleWebSocket(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 		return
 	}
+	collection := clientMongo.Database("chatbot-server").Collection("conversation")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	chatIDObject, err := primitive.ObjectIDFromHex(chatID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid chat id"})
+		return
+	}
+	userIDObject, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user id"})
+		return
+	}
 
+	filter := bson.M{
+		"_id":     chatIDObject,
+		"user_id": userIDObject,
+	}
+	type ChatUser struct{
+		ID        primitive.ObjectID   `bson:"_id,omitempty" json:"id,omitempty"`
+		UserID    primitive.ObjectID   `bson:"user_id" json:"user_id"`
+	}
+	var chat ChatUser
+	err1 := collection.FindOne(ctx, filter).Decode(&chat)
+	if err1 != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err1.Error()})
+		return
+	}
+	
 	payload, err := auth.DecodeJWT(token)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err})

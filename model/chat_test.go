@@ -8,9 +8,10 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-func TestCreateConversation(t *testing.T){
-	fmt.Println("TestCreateConversation")
+func TestCheckConversationUser(t *testing.T){
+	fmt.Println("TestCheckConversationUser")
 	id :="6706b4c98fc002acdb37afdc"
+	
 	_, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
         // Handle the error (invalid ObjectId format, etc.)

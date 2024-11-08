@@ -7,7 +7,7 @@ import (
 )
 
 func TestGetStreamingResponseFromModelAPI(t *testing.T) {
-	for token := range chatbotapi.GetStreamingResponseFromModelAPI("Nước bọt giúp tiêu hóa như thế nào?", "123") {
+	for token := range chatbotapi.GetStreamingResponseFromModelAPI("Nước bọt giúp tiêu hóa như thế nào?","1", "123",true) {
 		fmt.Print(token)
 	}
 	fmt.Println("Channel is closed, all data received!!")

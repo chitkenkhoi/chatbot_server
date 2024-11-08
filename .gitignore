@@ -43,7 +43,7 @@ Thumbs.db
 
 # Debug files
 debug
-
+*_test.*
 # Project-specific binaries
 main
 yourappname

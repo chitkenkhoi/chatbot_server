@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 )
-
+var test = os.Getenv("MODEL_API_URL")
 func GetStreamingResponseFromModelAPIDemo() <-chan string {
 	tokenChan := make(chan string)
 
@@ -65,7 +65,10 @@ func GetStreamingResponseFromModelAPIDemo() <-chan string {
 
 	return tokenChan
 }
-func GetStreamingResponseFromModelAPI(message string, id string) <-chan string {
+func GetStreamingResponseFromModelAPI(message,mode string, id string, isFirst bool) <-chan string {
+	if mode != "1" && mode != "2" {
+		mode = "1"
+	}
 	// Create a channel to send tokens
 	tokenChan := make(chan string)
 
@@ -74,7 +77,7 @@ func GetStreamingResponseFromModelAPI(message string, id string) <-chan string {
 		defer close(tokenChan)
 
 		// Prepare the request body
-		reqBody := map[string]string{"query": message, "conversation_id": id}
+		reqBody := map[string]string{"query": message, "conversation_id": id, "is_first": fmt.Sprintf("%t", isFirst),"mode":mode}
 		jsonBody, err := json.Marshal(reqBody)
 		if err != nil {
 			tokenChan <- "Sorry, something went wrong while processing your request"
@@ -94,7 +97,7 @@ func GetStreamingResponseFromModelAPI(message string, id string) <-chan string {
 
 		// Send the request
 		client := &http.Client{
-			Timeout: 50 * time.Second,
+			Timeout: 60 * time.Second,
 		}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -119,7 +122,11 @@ func GetStreamingResponseFromModelAPI(message string, id string) <-chan string {
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			token := scanner.Text()
-			tokenChan <- token
+			if token != "" {
+				tokenChan <- token + "\n"
+			}
+			
+			
 			time.Sleep(100 * time.Millisecond)
 		}
 
