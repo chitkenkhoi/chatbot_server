@@ -1,17 +1,18 @@
 package websocket
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"server/auth"
 	"sync"
 	"time"
-	"context"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 var upgrader = websocket.Upgrader{
@@ -55,6 +56,14 @@ func HandleWebSocket(c *gin.Context,clientMongo *mongo.Client) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 		return
 	}
+	
+	
+	payload, err := auth.DecodeJWT(token)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err})
+		return
+	}
+	userID = payload.UserID
 	collection := clientMongo.Database("chatbot-server").Collection("conversation")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -83,14 +92,6 @@ func HandleWebSocket(c *gin.Context,clientMongo *mongo.Client) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err1.Error()})
 		return
 	}
-	
-	payload, err := auth.DecodeJWT(token)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err})
-		return
-	}
-	userID = payload.UserID
-
 	// Upgrade connection
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
