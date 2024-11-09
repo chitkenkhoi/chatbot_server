@@ -13,40 +13,12 @@ import (
 	ws "server/websocket"
 	"strconv"
 	"time"
-	"strings"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
-func setCookie(c *gin.Context,name string,value string) {
-    // Get the origin from the request header
-    origin := c.GetHeader("Origin")
-    
-    var domain string
-    var secure bool
-    
-    if strings.Contains(origin, "localhost") {
-        domain = "localhost"
-        secure = false
-    } else if strings.Contains(c.Request.Host, "ngrok-free.app") {
-        domain = ".ngrok-free.app"
-        secure = true
-    }
-    
-    fmt.Printf("Setting cookie for domain: %s, secure: %v\n", domain, secure) // Debug log
-    
-    c.SetCookie(
-       name,           // name
-        value,            // value
-        3600,               // maxAge
-        "/",                // path
-        domain,             // domain
-        secure,             // secure
-        true,                // httpOnly
-    )
-}
 func main() {
 	// Use the SetServerAPIOptions() method to set the version of the Stable API on the client
 	godotenv.Load()
@@ -128,7 +100,18 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.SetCookie("register_token", utils.GenerateToken(email, redisClient), 60*15, "/", "localhost", false, true)
+		cookie := &http.Cookie{
+			Name:     "register_token",
+			Value:    utils.GenerateToken(email, redisClient),
+			Expires:  time.Now().Add(15 * time.Minute),
+			Path:	 "/",
+			Domain:   "",
+			MaxAge:   60*15,
+			Secure: true,
+			HttpOnly: true,
+			SameSite: http.SameSiteNoneMode,
+		}
+		http.SetCookie(c.Writer, cookie)
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 	router.POST("/register", func(c *gin.Context) {
@@ -150,7 +133,18 @@ func main() {
 				return
 			}
 		}
-		c.SetCookie("register_token", "", -1, "/", "localhost", false, true)
+		cookie := &http.Cookie{
+			Name:     "register_token",
+			Value:    "",
+			Expires:  time.Now().Add(-1 * time.Hour),
+			Path:	 "/",
+			Domain:   "",
+			MaxAge:   -1,
+			Secure: true,
+			HttpOnly: true,
+			SameSite: http.SameSiteNoneMode,
+		}
+		http.SetCookie(c.Writer, cookie)
 		if err := model.RegisterNewUser(&user, client, redisClient); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -159,7 +153,18 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": er.Error()})
 			return
 		} else {
-			c.SetCookie("jwt_token", token, 60*60*24, "/", "localhost", false, true)
+			cookie := &http.Cookie{
+				Name:     "jwt_token",
+				Value:    token,
+				Expires:  time.Now().Add(24 * time.Hour),
+				Path:	 "/",
+				Domain:   "",
+				MaxAge:   86400,
+				Secure: true,
+				HttpOnly: true,
+				SameSite: http.SameSiteNoneMode,
+			}
+			http.SetCookie(c.Writer, cookie)
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
@@ -182,7 +187,6 @@ func main() {
 				c.JSON(http.StatusBadRequest, gin.H{"error": er.Error()})
 				return
 			} else {
-				fmt.Println(token)
 				// setCookie(c,"jwt_token",token)
 				cookie := &http.Cookie{
 					Name:     "jwt_token",
@@ -388,7 +392,18 @@ func main() {
 		})
 	})
 	router.GET("/logout", func(c *gin.Context) {
-		c.SetCookie("jwt_token", "", -1, "/", "localhost", false, true)
+		cookie := &http.Cookie{
+			Name:     "jwt_token",
+			Value:    "",
+			Expires:  time.Now().Add(-1 * time.Second),
+			Path:	 "/",
+			Domain:   "",
+			MaxAge:   -1,
+			Secure: true,
+			HttpOnly: true,
+			SameSite: http.SameSiteNoneMode,
+		}
+		http.SetCookie(c.Writer, cookie)
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 	router.POST("/getTopic", func(c *gin.Context) {
