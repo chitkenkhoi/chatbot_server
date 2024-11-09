@@ -27,7 +27,7 @@ func main() {
 	redisClient := utils.ConnectRedis()
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{os.Getenv("FRONTEND_URL"), "http://localhost:8081","https://*.ngrok-free.app"}, // Add your frontend origin
+		AllowOrigins:     []string{os.Getenv("FRONTEND_URL"), "http://localhost:8081","https://*.ngrok-free.app","http://localhost:5173"}, // Add your frontend origin
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With","ngrok-skip-browser-warning"},
 		ExposeHeaders:    []string{"Content-Length","Set-Cookie"},
