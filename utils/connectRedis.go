@@ -18,6 +18,6 @@ func ConnectRedis() *redis.Client {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(pong) // Output: PONG
+	fmt.Println(pong," redis") // Output: PONG
 	return client
 }

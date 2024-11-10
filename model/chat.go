@@ -60,26 +60,41 @@ func NewConversation(userID primitive.ObjectID, content string) (*Conversation, 
 }
 
 // This function generates a response from the user's message using the model API and sends it to the user via websocket.
-func GenerateResponseAndWebsocket(userID, content, id, mode string, isFirst bool) (string, string) {
+func GenerateResponseAndWebsocket(userID, content, id, mode string, isFirst bool) (string, string,error) {
 	var completeResponse strings.Builder
 	prefix := "Chủ đề-123: "
+	if userID == "" {
+		return "", "",errors.New("userID is empty")
+	}
+	if id == "" {
+		return "","",errors.New("chatID is empty")
+	}
+	clientID := userID + ":" + id
+	if client,exists := ws.Clients[clientID]; exists {
+		if client.IsSending {
+			return "","",errors.New("client is sending")
+		}
+		client.Mu.Lock()
+		client.IsSending = true
+		client.Mu.Unlock()
+	}
 	for token := range chatbotapi.GetStreamingResponseFromModelAPI(content, mode, id, isFirst) {
-		fmt.Print(token) // Print each token for debugging/viewing
+		 // Print each token for debugging/viewing
 		// HANDLE WEBSOCKET HERE
 		ws.BroadcastToken(userID, id, token)
 		if strings.HasPrefix(token, prefix) {
-			result := token[len(prefix):]
+			topic := token[len(prefix):]
 			ws.BroadcastToken(userID, id, "end of response")
-			if strings.HasSuffix(result,"\n"){
-				result = result[:len(result)-1]
+			if strings.HasSuffix(topic,"\n"){
+				topic = topic[:len(topic)-1]
 			}
-			return completeResponse.String(), result
+			return completeResponse.String(), topic,nil
 		}
 		completeResponse.WriteString(token)
 
 	}
 	ws.BroadcastToken(userID, id, "end of response")
-	return completeResponse.String(), ""
+	return completeResponse.String(), "",nil
 }
 func CheckConversationUser(userID, conversationID primitive.ObjectID, client *mongo.Client) error {
 	collection := client.Database("chatbot-server").Collection("conversation")
@@ -122,7 +137,11 @@ func AskNewConversation(userID primitive.ObjectID, content string, client *mongo
 	}
 
 	go func() {
-		finalResponse, topic := GenerateResponseAndWebsocket(userID.Hex(), conversation.Messages[0].Content, result.InsertedID.(primitive.ObjectID).Hex(), mode, true)
+		finalResponse, topic,err := GenerateResponseAndWebsocket(userID.Hex(), conversation.Messages[0].Content, result.InsertedID.(primitive.ObjectID).Hex(), mode, true)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 		filter := bson.M{"_id": result.InsertedID.(primitive.ObjectID)}
 		newMessage := Message{
 			Sender:    "bot",
@@ -176,36 +195,38 @@ func AskInConversation(conversationID primitive.ObjectID, content string, client
 		return err1
 	}
 	go func() {
-		finalResponse, _ := GenerateResponseAndWebsocket(result.UserID.Hex(), content, conversationID.Hex(), result.Mode, false)
-		filter := bson.M{"_id": conversationID}
-
-		newMessages := []Message{
-			{
-				Sender:    "user",
-				Content:   content,
-				Timestamp: time.Now(),
-			},
-			{
-				Sender:    "bot",
-				Content:   finalResponse,
-				Timestamp: time.Now(),
-			},
-		}
-		update := bson.M{
-			"$push": bson.M{
-				"messages": bson.M{
-					"$each": newMessages,
-				},
-			},
-			"$set": bson.M{"updated_at": time.Now()},
-		}
-		collection := client.Database("chatbot-server").Collection("conversation")
-		_, err := collection.UpdateOne(context.TODO(), filter, update)
-		if err != nil {
+		if finalResponse, _,err := GenerateResponseAndWebsocket(result.UserID.Hex(), content, conversationID.Hex(), result.Mode, false); err != nil {
 			fmt.Println(err)
-		}
+			return
+		}else{
+			filter := bson.M{"_id": conversationID}
+			newMessages := []Message{
+				{
+					Sender:    "user",
+					Content:   content,
+					Timestamp: time.Now(),
+				},
+				{
+					Sender:    "bot",
+					Content:   finalResponse,
+					Timestamp: time.Now(),
+				},
+			}
+			update := bson.M{
+				"$push": bson.M{
+					"messages": bson.M{
+						"$each": newMessages,
+					},
+				},
+				"$set": bson.M{"updated_at": time.Now()},
+			}
+			collection := client.Database("chatbot-server").Collection("conversation")
+			_, err := collection.UpdateOne(context.TODO(), filter, update)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}	
 	}()
-
 	return nil
 }
 

@@ -347,7 +347,6 @@ func main() {
 			mode = "1"
 		}
 		message := c.PostForm("message")
-		fmt.Println(message)
 		cookie, _ := c.Request.Cookie("jwt_token")
 		token := cookie.Value
 		payload, _ := auth.DecodeJWT(token)

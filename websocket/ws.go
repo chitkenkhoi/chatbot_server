@@ -24,9 +24,11 @@ var upgrader = websocket.Upgrader{
 type Client struct {
 	conn *websocket.Conn
 	id   string
+	IsSending bool
+	Mu sync.Mutex
 }
 
-var clients = make(map[string]*Client)
+var Clients = make(map[string]*Client)
 var clientsMutex sync.Mutex
 
 func TestWebSocket() {
@@ -104,17 +106,19 @@ func HandleWebSocket(c *gin.Context,clientMongo *mongo.Client) {
 	client := &Client{
 		conn: conn,
 		id:   id,
+		IsSending: false,
+		Mu: sync.Mutex{},
 	}
 
 	clientsMutex.Lock()
-	clients[id] = client
+	Clients[id] = client
 	clientsMutex.Unlock()
 
 	// Ensure cleanup
 	defer func() {
 		conn.Close()
 		clientsMutex.Lock()
-		delete(clients, id)
+		delete(Clients, id)
 		clientsMutex.Unlock()
 	}()
 
@@ -179,18 +183,21 @@ func BroadcastToken(userID, chatID, token string) {
 			return
 
 		case <-ticker.C:
+			var client *Client
+            var exists bool
 			clientsMutex.Lock()
-			client, exists := clients[clientID]
+			client, exists = Clients[clientID]
+			clientsMutex.Unlock()
 			if exists {
 				err := client.conn.WriteMessage(websocket.TextMessage, []byte(token))
 				if err != nil {
 					log.Printf("Error sending message to user %s: %v\n", clientID, err)
-					delete(clients, clientID)
+					clientsMutex.Lock()
+					delete(Clients, clientID)
+					clientsMutex.Unlock()
 				}
-				clientsMutex.Unlock()
 				return
 			}
-			clientsMutex.Unlock()
 		}
 	}
 }
