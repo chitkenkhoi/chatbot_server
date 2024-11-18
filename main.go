@@ -5,21 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"server/auth"
+	"server/cloud"
 	geminiapi "server/geminiAPI"
 	"server/model"
 	"server/utils"
 	ws "server/websocket"
 	"strconv"
 	"time"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"server/cloud"
 )
+
 func main() {
 	// Use the SetServerAPIOptions() method to set the version of the Stable API on the client
 	godotenv.Load()
@@ -28,10 +29,11 @@ func main() {
 	redisClient := utils.ConnectRedis()
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{os.Getenv("FRONTEND_URL"), "http://localhost:8081","https://*.ngrok-free.app","http://localhost:5173"}, // Add your frontend origin
+		AllowOrigins: []string{"https://www.newgchatbot.site",
+			"https://newgchatbot.site"}, // Add your frontend origin
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With","ngrok-skip-browser-warning"},
-		ExposeHeaders:    []string{"Content-Length","Set-Cookie"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "ngrok-skip-browser-warning"},
+		ExposeHeaders:    []string{"Content-Length", "Set-Cookie"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
@@ -47,14 +49,14 @@ func main() {
 	fmt.Println("Pinged your deployment. You successfully connected to MongoDB!")
 	// Create a new WebSocket connection
 	router.GET("/ws/:id", func(c *gin.Context) {
-		ws.HandleWebSocket(c,client)
+		ws.HandleWebSocket(c, client)
 	})
 	router.GET("/test/:userid", func(c *gin.Context) {
 		id := "670aa7a22065dc72cb99f733"
 		userid := c.Param("userid")
 		objectId1, _ := primitive.ObjectIDFromHex(id)
 		objectId2, _ := primitive.ObjectIDFromHex(userid)
-		if err := model.CheckConversationUser( objectId2,objectId1, client); err != nil {
+		if err := model.CheckConversationUser(objectId2, objectId1, client); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err.Error(),
 			})
@@ -105,10 +107,10 @@ func main() {
 			Name:     "register_token",
 			Value:    utils.GenerateToken(email, redisClient),
 			Expires:  time.Now().Add(15 * time.Minute),
-			Path:	 "/",
+			Path:     "/",
 			Domain:   "",
-			MaxAge:   60*15,
-			Secure: true,
+			MaxAge:   60 * 15,
+			Secure:   true,
 			HttpOnly: true,
 			SameSite: http.SameSiteNoneMode,
 		}
@@ -138,10 +140,10 @@ func main() {
 			Name:     "register_token",
 			Value:    "",
 			Expires:  time.Now().Add(-1 * time.Hour),
-			Path:	 "/",
+			Path:     "/",
 			Domain:   "",
 			MaxAge:   -1,
-			Secure: true,
+			Secure:   true,
 			HttpOnly: true,
 			SameSite: http.SameSiteNoneMode,
 		}
@@ -158,10 +160,10 @@ func main() {
 				Name:     "jwt_token",
 				Value:    token,
 				Expires:  time.Now().Add(24 * time.Hour),
-				Path:	 "/",
+				Path:     "/",
 				Domain:   "",
 				MaxAge:   86400,
-				Secure: true,
+				Secure:   true,
 				HttpOnly: true,
 				SameSite: http.SameSiteNoneMode,
 			}
@@ -193,17 +195,17 @@ func main() {
 					Name:     "jwt_token",
 					Value:    token,
 					Expires:  time.Now().Add(24 * time.Hour),
-					Path:	 "/",
+					Path:     "/",
 					Domain:   "",
 					MaxAge:   86400,
-					Secure: true,
+					Secure:   true,
 					HttpOnly: true,
 					SameSite: http.SameSiteNoneMode,
 				}
 				http.SetCookie(c.Writer, cookie)
 				// c.SetCookie("jwt_token", token, 60*60*24, "/", "", false, true)
 			}
-			
+
 			c.JSON(http.StatusOK, gin.H{"message": "success", "userId": userId, "userEmail": user.Email, "userName": userName})
 		}
 	})
@@ -360,7 +362,7 @@ func main() {
 			})
 			return
 		}
-		if id, er := model.AskNewConversation(id, message, client, mode,cid); er != nil {
+		if id, er := model.AskNewConversation(id, message, client, mode, cid); er != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err,
 			})
@@ -384,7 +386,7 @@ func main() {
 			return
 		}
 		cid := c.PostForm("cid")
-		if err := model.AskInConversation(objectID, message, client,cid); err != nil {
+		if err := model.AskInConversation(objectID, message, client, cid); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err,
 			})
@@ -407,18 +409,18 @@ func main() {
 		} else {
 			c.JSON(http.StatusOK, gin.H{"jwt": jwt})
 		}
-        // In production, you might want to validate the file type/size here
-		
-    })
+		// In production, you might want to validate the file type/size here
+
+	})
 	router.GET("/logout", func(c *gin.Context) {
 		cookie := &http.Cookie{
 			Name:     "jwt_token",
 			Value:    "",
 			Expires:  time.Now().Add(-1 * time.Second),
-			Path:	 "/",
+			Path:     "/",
 			Domain:   "",
 			MaxAge:   -1,
-			Secure: true,
+			Secure:   true,
 			HttpOnly: true,
 			SameSite: http.SameSiteNoneMode,
 		}
