@@ -19,6 +19,7 @@ import (
 type Message struct {
 	Sender    string    `bson:"sender" json:"sender"`
 	Content   string    `bson:"content" json:"content"`
+	Cid       string    `bson:"cid,omitempty" json:"cid,omitempty"`
 	Timestamp time.Time `bson:"timestamp" json:"timestamp"`
 }
 
@@ -44,7 +45,8 @@ type ConversationSummary struct {
 	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
 	Mode      string             `bson:"mode" json:"mode"`
 }
-func NewConversation(userID primitive.ObjectID, content string) (*Conversation, error) {
+
+func NewConversation(userID primitive.ObjectID, content string,cid string) (*Conversation, error) {
 	content = utils.CleanString(content)
 	return &Conversation{
 		UserID:    userID,
@@ -55,46 +57,47 @@ func NewConversation(userID primitive.ObjectID, content string) (*Conversation, 
 			Sender:    "user",
 			Content:   content,
 			Timestamp: time.Now(),
+			Cid: 	 cid,
 		}},
 	}, nil
 }
 
 // This function generates a response from the user's message using the model API and sends it to the user via websocket.
-func GenerateResponseAndWebsocket(userID, content, id, mode string, isFirst bool) (string, string,error) {
+func GenerateResponseAndWebsocket(userID, content, id, mode string, isFirst bool,cid string) (string, string, error) {
 	var completeResponse strings.Builder
 	prefix := "Chủ đề-123: "
 	if userID == "" {
-		return "", "",errors.New("userID is empty")
+		return "", "", errors.New("userID is empty")
 	}
 	if id == "" {
-		return "","",errors.New("chatID is empty")
+		return "", "", errors.New("chatID is empty")
 	}
 	clientID := userID + ":" + id
-	if client,exists := ws.Clients[clientID]; exists {
+	if client, exists := ws.Clients[clientID]; exists {
 		if client.IsSending {
-			return "","",errors.New("client is sending")
+			return "", "", errors.New("client is sending")
 		}
 		client.Mu.Lock()
 		client.IsSending = true
 		client.Mu.Unlock()
 	}
-	for token := range chatbotapi.GetStreamingResponseFromModelAPI(content, mode, id, isFirst) {
-		 // Print each token for debugging/viewing
+	for token := range chatbotapi.GetStreamingResponseFromModelAPI(content, mode, id, isFirst,cid) {
+		// Print each token for debugging/viewing
 		// HANDLE WEBSOCKET HERE
 		ws.BroadcastToken(userID, id, token)
 		if strings.HasPrefix(token, prefix) {
 			topic := token[len(prefix):]
 			ws.BroadcastToken(userID, id, "end of response")
-			if strings.HasSuffix(topic,"\n"){
+			if strings.HasSuffix(topic, "\n") {
 				topic = topic[:len(topic)-1]
 			}
-			return completeResponse.String(), topic,nil
+			return completeResponse.String(), topic, nil
 		}
 		completeResponse.WriteString(token)
 
 	}
 	ws.BroadcastToken(userID, id, "end of response")
-	return completeResponse.String(), "",nil
+	return completeResponse.String(), "", nil
 }
 func CheckConversationUser(userID, conversationID primitive.ObjectID, client *mongo.Client) error {
 	collection := client.Database("chatbot-server").Collection("conversation")
@@ -118,12 +121,13 @@ func CheckConversationUser(userID, conversationID primitive.ObjectID, client *mo
 
 	return nil
 }
+
 // This function first creates a new conversation with the user's message, then generates a response using the model API and sends it to the user via websocket. Finally, it saves the conversation to the database.
-func AskNewConversation(userID primitive.ObjectID, content string, client *mongo.Client, mode string) (primitive.ObjectID, error) {
+func AskNewConversation(userID primitive.ObjectID, content string, client *mongo.Client, mode string,cid string) (primitive.ObjectID, error) {
 	if content == "" {
 		return primitive.NilObjectID, errors.New("content is empty")
 	}
-	conversation, err := NewConversation(userID, content)
+	conversation, err := NewConversation(userID, content,cid)
 	if err != nil {
 		return primitive.NilObjectID, err
 	}
@@ -137,7 +141,7 @@ func AskNewConversation(userID primitive.ObjectID, content string, client *mongo
 	}
 
 	go func() {
-		finalResponse, topic,err := GenerateResponseAndWebsocket(userID.Hex(), conversation.Messages[0].Content, result.InsertedID.(primitive.ObjectID).Hex(), mode, true)
+		finalResponse, topic, err := GenerateResponseAndWebsocket(userID.Hex(), conversation.Messages[0].Content, result.InsertedID.(primitive.ObjectID).Hex(), mode, true,cid)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -173,7 +177,7 @@ func (c *Conversation) RemoveMessage(index int) {
 }
 
 // This function generates a response from the whole conversation using the model API and sends it to the user via websocket. It then saves the question and answer to the database.
-func AskInConversation(conversationID primitive.ObjectID, content string, client *mongo.Client) error {
+func AskInConversation(conversationID primitive.ObjectID, content string, client *mongo.Client,cid string) error {
 	if content == "" {
 		return errors.New("content is empty")
 	}
@@ -195,16 +199,17 @@ func AskInConversation(conversationID primitive.ObjectID, content string, client
 		return err1
 	}
 	go func() {
-		if finalResponse, _,err := GenerateResponseAndWebsocket(result.UserID.Hex(), content, conversationID.Hex(), result.Mode, false); err != nil {
+		if finalResponse, _, err := GenerateResponseAndWebsocket(result.UserID.Hex(), content, conversationID.Hex(), result.Mode, false,cid); err != nil {
 			fmt.Println(err)
 			return
-		}else{
+		} else {
 			filter := bson.M{"_id": conversationID}
 			newMessages := []Message{
 				{
 					Sender:    "user",
 					Content:   content,
 					Timestamp: time.Now(),
+					Cid: cid,
 				},
 				{
 					Sender:    "bot",
@@ -225,7 +230,7 @@ func AskInConversation(conversationID primitive.ObjectID, content string, client
 			if err != nil {
 				fmt.Println(err)
 			}
-		}	
+		}
 	}()
 	return nil
 }
@@ -234,10 +239,10 @@ func AskInConversation(conversationID primitive.ObjectID, content string, client
 func GetUserConversations(userID primitive.ObjectID, client *mongo.Client) (*[]ConversationSummary, error) {
 	filter := bson.M{"user_id": userID}
 	projection := bson.M{
-		"_id": 1, 
-		"topic": 1,
+		"_id":        1,
+		"topic":      1,
 		"updated_at": 1,
-		"mode": 1,
+		"mode":       1,
 	}
 
 	findOptions := options.Find().SetProjection(projection).SetSort(bson.M{"updated_at": -1})
@@ -260,10 +265,10 @@ func GetUserConversations(userID primitive.ObjectID, client *mongo.Client) (*[]C
 func GetUserConversationsPage(userID primitive.ObjectID, client *mongo.Client, page int64) (*[]ConversationSummary, error) {
 	filter := bson.M{"user_id": userID}
 	projection := bson.M{
-		"_id": 1, 
-		"topic": 1,
+		"_id":        1,
+		"topic":      1,
 		"updated_at": 1,
-		"mode": 1,
+		"mode":       1,
 	}
 	skip := (page - 1) * 8
 	findOptions := options.Find().SetProjection(projection).SetSort(bson.M{"updated_at": -1}).SetLimit(8).SetSkip(skip)

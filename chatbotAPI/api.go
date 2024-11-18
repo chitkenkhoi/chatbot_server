@@ -65,7 +65,7 @@ func GetStreamingResponseFromModelAPIDemo() <-chan string {
 
 	return tokenChan
 }
-func GetStreamingResponseFromModelAPI(message,mode string, id string, isFirst bool) <-chan string {
+func GetStreamingResponseFromModelAPI(message,mode string, id string, isFirst bool,cid string) <-chan string {
 	if mode != "1" && mode != "2" {
 		mode = "1"
 	}
@@ -77,7 +77,7 @@ func GetStreamingResponseFromModelAPI(message,mode string, id string, isFirst bo
 		defer close(tokenChan)
 
 		// Prepare the request body
-		reqBody := map[string]string{"query": message, "conversation_id": id, "is_first": fmt.Sprintf("%t", isFirst),"mode":mode}
+		reqBody := map[string]string{"query": message, "conversation_id": id, "is_first": fmt.Sprintf("%t", isFirst),"mode":mode,"cid":cid}
 		jsonBody, err := json.Marshal(reqBody)
 		if err != nil {
 			tokenChan <- "Sorry, something went wrong while processing your request"

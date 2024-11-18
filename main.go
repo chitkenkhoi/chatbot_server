@@ -18,6 +18,7 @@ import (
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"server/cloud"
 )
 func main() {
 	// Use the SetServerAPIOptions() method to set the version of the Stable API on the client
@@ -347,6 +348,8 @@ func main() {
 			mode = "1"
 		}
 		message := c.PostForm("message")
+		cid := c.PostForm("cid")
+
 		cookie, _ := c.Request.Cookie("jwt_token")
 		token := cookie.Value
 		payload, _ := auth.DecodeJWT(token)
@@ -357,7 +360,7 @@ func main() {
 			})
 			return
 		}
-		if id, er := model.AskNewConversation(id, message, client, mode); er != nil {
+		if id, er := model.AskNewConversation(id, message, client, mode,cid); er != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err,
 			})
@@ -380,7 +383,8 @@ func main() {
 			})
 			return
 		}
-		if err := model.AskInConversation(objectID, message, client); err != nil {
+		cid := c.PostForm("cid")
+		if err := model.AskInConversation(objectID, message, client,cid); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err,
 			})
@@ -390,6 +394,22 @@ func main() {
 			"message": "success",
 		})
 	})
+	router.GET("/api/get-signed-jwt", func(c *gin.Context) {
+		if !model.IsTokenValid(c, redisClient) {
+			return
+		}
+		cookie, _ := c.Request.Cookie("jwt_token")
+		token := cookie.Value
+		payload, _ := auth.DecodeJWT(token)
+		if jwt, err := cloud.GetSignedJWT(payload.UserID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		} else {
+			c.JSON(http.StatusOK, gin.H{"jwt": jwt})
+		}
+        // In production, you might want to validate the file type/size here
+		
+    })
 	router.GET("/logout", func(c *gin.Context) {
 		cookie := &http.Cookie{
 			Name:     "jwt_token",
@@ -418,5 +438,6 @@ func main() {
 			c.JSON(http.StatusOK, gin.H{"message": "success", "topic": topic})
 		}
 	})
+
 	router.Run(":5000")
 }
