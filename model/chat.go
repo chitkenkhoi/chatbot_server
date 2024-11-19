@@ -46,7 +46,7 @@ type ConversationSummary struct {
 	Mode      string             `bson:"mode" json:"mode"`
 }
 
-func NewConversation(userID primitive.ObjectID, content string,cid string) (*Conversation, error) {
+func NewConversation(userID primitive.ObjectID, content string, cid string) (*Conversation, error) {
 	content = utils.CleanString(content)
 	return &Conversation{
 		UserID:    userID,
@@ -57,13 +57,13 @@ func NewConversation(userID primitive.ObjectID, content string,cid string) (*Con
 			Sender:    "user",
 			Content:   content,
 			Timestamp: time.Now(),
-			Cid: 	 cid,
+			Cid:       cid,
 		}},
 	}, nil
 }
 
 // This function generates a response from the user's message using the model API and sends it to the user via websocket.
-func GenerateResponseAndWebsocket(userID, content, id, mode string, isFirst bool,cid string) (string, string, error) {
+func GenerateResponseAndWebsocket(userID, content, id, mode string, isFirst bool, cid string) (string, string, error) {
 	var completeResponse strings.Builder
 	prefix := "Chủ đề-123: "
 	if userID == "" {
@@ -80,8 +80,11 @@ func GenerateResponseAndWebsocket(userID, content, id, mode string, isFirst bool
 		client.Mu.Lock()
 		client.IsSending = true
 		client.Mu.Unlock()
+	} else {
+		return "", "", errors.New("id is invalid")
 	}
-	for token := range chatbotapi.GetStreamingResponseFromModelAPI(content, mode, id, isFirst,cid) {
+
+	for token := range chatbotapi.GetStreamingResponseFromModelAPI(content, mode, id, isFirst, cid) {
 		// Print each token for debugging/viewing
 		// HANDLE WEBSOCKET HERE
 		ws.BroadcastToken(userID, id, token)
@@ -97,6 +100,11 @@ func GenerateResponseAndWebsocket(userID, content, id, mode string, isFirst bool
 
 	}
 	ws.BroadcastToken(userID, id, "end of response")
+	if client, exists := ws.Clients[clientID]; exists {
+		client.Mu.Lock()
+		client.IsSending = false
+		client.Mu.Unlock()
+	}
 	return completeResponse.String(), "", nil
 }
 func CheckConversationUser(userID, conversationID primitive.ObjectID, client *mongo.Client) error {
@@ -123,11 +131,11 @@ func CheckConversationUser(userID, conversationID primitive.ObjectID, client *mo
 }
 
 // This function first creates a new conversation with the user's message, then generates a response using the model API and sends it to the user via websocket. Finally, it saves the conversation to the database.
-func AskNewConversation(userID primitive.ObjectID, content string, client *mongo.Client, mode string,cid string) (primitive.ObjectID, error) {
+func AskNewConversation(userID primitive.ObjectID, content string, client *mongo.Client, mode string, cid string) (primitive.ObjectID, error) {
 	if content == "" {
 		return primitive.NilObjectID, errors.New("content is empty")
 	}
-	conversation, err := NewConversation(userID, content,cid)
+	conversation, err := NewConversation(userID, content, cid)
 	if err != nil {
 		return primitive.NilObjectID, err
 	}
@@ -141,7 +149,7 @@ func AskNewConversation(userID primitive.ObjectID, content string, client *mongo
 	}
 
 	go func() {
-		finalResponse, topic, err := GenerateResponseAndWebsocket(userID.Hex(), conversation.Messages[0].Content, result.InsertedID.(primitive.ObjectID).Hex(), mode, true,cid)
+		finalResponse, topic, err := GenerateResponseAndWebsocket(userID.Hex(), conversation.Messages[0].Content, result.InsertedID.(primitive.ObjectID).Hex(), mode, true, cid)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -177,7 +185,7 @@ func (c *Conversation) RemoveMessage(index int) {
 }
 
 // This function generates a response from the whole conversation using the model API and sends it to the user via websocket. It then saves the question and answer to the database.
-func AskInConversation(conversationID primitive.ObjectID, content string, client *mongo.Client,cid string) error {
+func AskInConversation(conversationID primitive.ObjectID, content string, client *mongo.Client, cid string) error {
 	if content == "" {
 		return errors.New("content is empty")
 	}
@@ -199,7 +207,7 @@ func AskInConversation(conversationID primitive.ObjectID, content string, client
 		return err1
 	}
 	go func() {
-		if finalResponse, _, err := GenerateResponseAndWebsocket(result.UserID.Hex(), content, conversationID.Hex(), result.Mode, false,cid); err != nil {
+		if finalResponse, _, err := GenerateResponseAndWebsocket(result.UserID.Hex(), content, conversationID.Hex(), result.Mode, false, cid); err != nil {
 			fmt.Println(err)
 			return
 		} else {
@@ -209,7 +217,7 @@ func AskInConversation(conversationID primitive.ObjectID, content string, client
 					Sender:    "user",
 					Content:   content,
 					Timestamp: time.Now(),
-					Cid: cid,
+					Cid:       cid,
 				},
 				{
 					Sender:    "bot",
