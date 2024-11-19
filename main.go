@@ -30,7 +30,8 @@ func main() {
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
 		AllowOrigins: []string{"https://www.newgchatbot.site",
-			"https://newgchatbot.site"}, // Add your frontend origin
+			"https://newgchatbot.site",
+			"http://localhost:5173"}, // Add your frontend origin
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "ngrok-skip-browser-warning"},
 		ExposeHeaders:    []string{"Content-Length", "Set-Cookie"},
