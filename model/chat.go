@@ -80,8 +80,6 @@ func GenerateResponseAndWebsocket(userID, content, id, mode string, isFirst bool
 		client.Mu.Lock()
 		client.IsSending = true
 		client.Mu.Unlock()
-	} else {
-		return "", "", errors.New("id is invalid")
 	}
 
 	for token := range chatbotapi.GetStreamingResponseFromModelAPI(content, mode, id, isFirst, cid) {
